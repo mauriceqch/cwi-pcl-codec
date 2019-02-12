@@ -87,7 +87,7 @@ class evaluate_compression_impl : evaluate_compression {
   // using boost::exception on errors
   public:
     evaluate_compression_impl (int argc, char** argv) : evaluate_compression (argc, argv), debug_level_ (3) {};
-    bool evaluate_group(std::vector<boost::shared_ptr<pcl::PointCloud<PointT> > >& group, stringstream& compression_settings, std::ofstream& intra_frame_quality_csv, std::ofstream& predictive_quality_csv);
+    bool evaluate_group(std::vector<std::string>& truncated_filenames, std::vector<boost::shared_ptr<pcl::PointCloud<PointT> > >& group, stringstream& compression_settings, std::ofstream& intra_frame_quality_csv, std::ofstream& predictive_quality_csv);
 
     // options handling
     void initialize_options_description ();
@@ -544,7 +544,14 @@ evaluate_compression_impl<PointT>::do_output (std::string path, boost::shared_pt
   pcl::PCLPointCloud2::Ptr cloud2(new pcl::PCLPointCloud2());
   pcl::toPCLPointCloud2( *pointcloud, *cloud2);
   pcl::PLYWriter writer;
-  writer.write(output_directory_+"/"+path, cloud2);
+  std::string output_path = output_directory_+"/"+path;
+  cout << "Writing to " << output_path << std::endl;
+
+  boost::filesystem::path p(output_path);
+  boost::filesystem::path dir = p.parent_path();
+  boost::filesystem::create_directories(dir);
+
+  writer.write(output_path, cloud2);
 }
 
 template<typename PointT>
@@ -658,7 +665,7 @@ get_filenames_from_dir (std::string directory, vector<std::string>& filenames)
     // order of filenames returned by directory_iterator is undefined
     namespace fs = boost::filesystem;
     //#pragma omp parallel for
-    for (fs::directory_iterator itr (directory); itr != fs::directory_iterator (); itr++)
+    for (fs::recursive_directory_iterator itr (directory); itr != fs::recursive_directory_iterator (); itr++)
     {
         fs::directory_entry de = *itr;
         filenames.push_back (de.path ().string ());
@@ -740,16 +747,21 @@ evaluate_compression_impl<PointT>::evaluate ()
     if (intra_frame_quality_csv_ != "")
     {
       intra_frame_quality_csv.open(intra_frame_quality_csv_.c_str());
+      intra_frame_quality_csv << "filename;";
       QualityMetric::print_csv_header(intra_frame_quality_csv);
     }
     std::ofstream predictive_quality_csv;
     if (predictive_quality_csv_ != "")
     {
       predictive_quality_csv.open(predictive_quality_csv_.c_str());
+      predictive_quality_csv << "filename;";
       QualityMetric::print_csv_header(predictive_quality_csv);
     }
     vector<std::string> filenames;
-    if (get_filenames_from_dir (*input_directories_.begin(), filenames) != 0) return false;
+    std::string input_directory = *input_directories_.begin();
+    if (get_filenames_from_dir (input_directory, filenames) != 0) return false;
+    vector<std::string> truncated_filenames;
+    
     for (std::vector<std::string>::iterator itr = filenames.begin (); itr != filenames.end (); itr++)
     {
       std::string filename = *itr;
@@ -760,12 +772,15 @@ evaluate_compression_impl<PointT>::evaluate ()
         if (output_index_ == -1) // no index found
           output_index_ = 0;
       }
+      cout << "Reading " << filename << std::endl;
       boost::shared_ptr<pcl::PointCloud<PointT> > pc (new PointCloud<PointT> ());
       if ( ! load_input_cloud(filename, pc))
       {
         continue;
       }
+      cout << "Processing " << filename << std::endl;
       group.push_back(pc->makeShared());
+      truncated_filenames.push_back(filename.substr(input_directory.size() + 1));
       count++;
       if (group_size_ == 0 && count < filenames.size ())
       {
@@ -774,10 +789,11 @@ evaluate_compression_impl<PointT>::evaluate ()
       // encode the group for each set of 'group_size' filenames, and the final set
       if (group_size_ == 0 || count == filenames.size () || count % group_size_ == 0)
       {
-        evaluate_group (group, compression_settings, intra_frame_quality_csv, predictive_quality_csv);
+        evaluate_group (truncated_filenames, group, compression_settings, intra_frame_quality_csv, predictive_quality_csv);
         complete_initialization();
         // start new group
         group.clear ();
+	truncated_filenames.clear();
         count = 0;
       }
     }
@@ -796,7 +812,7 @@ evaluate_compression_impl<PointT>::evaluate ()
 
 template<typename PointT>
 bool
-evaluate_compression_impl<PointT>::evaluate_group(std::vector<boost::shared_ptr<pcl::PointCloud<PointT> > >& group,
+evaluate_compression_impl<PointT>::evaluate_group(std::vector<std::string>& truncated_filenames, std::vector<boost::shared_ptr<pcl::PointCloud<PointT> > >& group,
             stringstream& compression_settings, std::ofstream& intra_frame_quality_csv, std::ofstream& predictive_quality_csv)
 {
   bool rv = true; // return value
@@ -837,6 +853,7 @@ evaluate_compression_impl<PointT>::evaluate_group(std::vector<boost::shared_ptr<
       do_quality_computation (pc, output_pointcloud, achieved_quality);
       if (intra_frame_quality_csv_ != "")
       {
+	intra_frame_quality_csv << truncated_filenames[i] << ";";
         achieved_quality.print_csv_line(compression_settings.str(), intra_frame_quality_csv);
       }
     }
@@ -845,7 +862,8 @@ evaluate_compression_impl<PointT>::evaluate_group(std::vector<boost::shared_ptr<
     if (bb_expand_factor_ > 0.0) pcl::io::OctreePointCloudCodecV2 <PointT>::restore_scaling (rescaled_pc, bb);
     if (output_directory_ != "")
     {
-      do_output ( "pointcloud_" + boost::lexical_cast<string> (output_index_++) + ".ply", rescaled_pc, achieved_quality);
+      //do_output ( "pointcloud_" + boost::lexical_cast<string> (output_index_++) + ".ply", rescaled_pc, achieved_quality);
+      do_output ( truncated_filenames[i], rescaled_pc, achieved_quality);
     }
     do_visualization ("Original", opc);
     do_visualization ("Decoded", rescaled_pc);
@@ -876,13 +894,15 @@ evaluate_compression_impl<PointT>::evaluate_group(std::vector<boost::shared_ptr<
         do_quality_computation (working_group[i+1], predicted_pc, predictive_quality);
         if (predictive_quality_csv_ != "")
         {
+	  predictive_quality_csv << truncated_filenames[i] << ";";
           predictive_quality.print_csv_line(compression_settings.str(), predictive_quality_csv);
         }
       }
       pcl::io::OctreePointCloudCodecV2 <PointT>::restore_scaling (predicted_pc, bb);
       if (output_directory_ != "")
       {
-        do_output ("delta_decoded_pc_" + boost::lexical_cast<string> (output_index_) + ".ply", predicted_pc, predictive_quality);
+        //do_output ("delta_decoded_pc_" + boost::lexical_cast<string> (output_index_) + ".ply", predicted_pc, predictive_quality);
+        do_output (truncated_filenames[i] + ".delta", predicted_pc, predictive_quality);
       }
       do_visualization ("Delta Decoded", predicted_pc);
     }
