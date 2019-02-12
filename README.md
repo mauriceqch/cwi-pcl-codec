@@ -1,5 +1,28 @@
 # Copyright (c) 2017-, Stichting Centrum Wiskunde en Informatica (CWI).
 
+Notes
+=============
+Modified by Maurice Quach @ L2S, CNRS, CentraleSupélec, Université Paris-Saclay.
+
+* Preservation of directory structure for decompressed point clouds
+* Added byte count information to output CSVs
+
+If you use this code for research, please cite:
+
+  @article{Mekuria_2017,
+    doi = {10.1109/tcsvt.2016.2543039},
+    url = {https://doi.org/10.1109%2Ftcsvt.2016.2543039},
+    year = 2017,
+    month = {apr},
+    publisher = {Institute of Electrical and Electronics Engineers ({IEEE})},
+    volume = {27},
+    number = {4},
+    pages = {828--842},
+    author = {Rufael Mekuria and Kees Blom and Pablo Cesar},
+    title = {Design, Implementation, and Evaluation of a Point Cloud Codec for Tele-Immersive Video},
+    journal = {{IEEE} Transactions on Circuits and Systems for Video Technology}
+  }
+
 cwi-pcl-codec
 =============
 
