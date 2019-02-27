@@ -7,6 +7,10 @@ Modified by Maurice Quach @ L2S, CNRS, CentraleSupélec, Université Paris-Sacla
 * Preservation of directory structure for decompressed point clouds
 * Added byte count information to output CSVs
 
+Example usage:
+
+    ./evaluate_compression -i path/to/msft -o path/to/msft_9 -q 1 -b 9 -g 1 --intra_frame_quality_csv ./msft_9_intra.csv --predictive_quality_csv ./msft_9_pred.csv
+
 If you use this code for research, please cite:
 
     @article{Mekuria_2017,
